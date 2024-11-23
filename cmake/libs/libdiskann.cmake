@@ -3,6 +3,8 @@ find_package(Boost REQUIRED COMPONENTS program_options)
 include_directories(${Boost_INCLUDE_DIR})
 find_package(aio REQUIRED)
 include_directories(${AIO_INCLUDE})
+find_package(uring REQUIRED)
+include_directories(${URING_INCLUDE})
 include_directories(thirdparty/DiskANN/include)
 
 find_package(double-conversion REQUIRED)
