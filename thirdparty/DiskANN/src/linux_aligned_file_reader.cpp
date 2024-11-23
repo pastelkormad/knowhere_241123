@@ -210,6 +210,7 @@ int count, unsigned int logical_block_size = 512){
 	static constexpr unsigned int unused_mark = 0xffffffff; // 0xffffffff is used as a flag for unused
 	int can_be_batched_up_to = 0; // end inclusive
 	for(int i=1; i<count; i++){
+    if(reads[0].len != PAGE_SIZE) break;
 		if(((char*)(reads[i].buf) == (char*)(reads[i-1].buf) + reads[i-1].len) &&
 		(reads[i].len == PAGE_SIZE))
 			can_be_batched_up_to++;
@@ -566,7 +567,7 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
 			sqes[sq_position & actual_queue_mask].cmd_op = NVME_URING_CMD_IO;
 			sqes[sq_position & actual_queue_mask].fd = disk_fd;
 			int pm = cmd_assign_pgs(&(sqes[sq_position & actual_queue_mask].cmd),  // command to assign
-			reqs_withdiskoffsets.data() + reqs_done + i, pages_per_cmd, logical_block_size);
+			reqs_withdiskoffsets.data() + reqs_done + i, std::min(pages_per_cmd, real_n_ops - i), logical_block_size);
 			// return value = how many reads there are in the command
 			if (pm == -1) {
         std::stringstream err;
