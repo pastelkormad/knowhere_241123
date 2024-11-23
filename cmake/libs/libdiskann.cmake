@@ -29,6 +29,7 @@ add_library(diskann STATIC ${DISKANN_SOURCES})
 target_link_libraries(
   diskann
   PUBLIC ${AIO_LIBRARIES}
+         ${URING_LIBRARIES}
          ${DISKANN_BOOST_PROGRAM_OPTIONS_LIB}
          nlohmann_json::nlohmann_json
          Folly::folly
