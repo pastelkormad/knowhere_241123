@@ -487,7 +487,7 @@ void LinuxAlignedFileReader::open(const std::string &fname) {
   // error checks
   assert(this->file_desc != -1);
   LOG_KNOWHERE_DEBUG_ << "Opened file : " << fname;
-  this->disk_fd = open_disk_fd(this->file_desc, false, O_DIRECT, true);
+  this->disk_fd = open_disk_fd(this->file_desc, false, O_RDONLY, true);
   if (this->disk_fd < 0) {
     std::stringstream err;
     err << "Error opening disk: " << strerror(errno);
