@@ -260,7 +260,7 @@ int GetPartitionOffset(const int fd, uint64_t* ret_off, uint64_t* ret_logical_bl
 		std::ifstream logical_block_size_file(logical_block_size_path);
 		if(!logical_block_size_file.is_open()){
       std::stringstream err;
-      err << "Error opening file: " << strerror(errno);
+      err << "Error opening file: " << logical_block_size_path << " ... " << strerror(errno);
       throw diskann::ANNException(err.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
 		}
 		logical_block_size_file >> *ret_logical_block_size;
@@ -493,7 +493,7 @@ void LinuxAlignedFileReader::open(const std::string &fname) {
     err << "Error opening disk: " << strerror(errno);
     throw diskann::ANNException(err.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
   }
-  int err = GetPartitionOffset(this->disk_fd, &this->partition_start, &this->logical_block_size);
+  int err = GetPartitionOffset(this->file_desc, &this->partition_start, &this->logical_block_size);
   if (err != 0) {
     std::stringstream err;
     err << "Error getting partition offset: " << strerror(errno);
