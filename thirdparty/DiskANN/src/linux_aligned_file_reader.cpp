@@ -567,7 +567,7 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
 			sqes[sq_position & actual_queue_mask].cmd_op = NVME_URING_CMD_IO;
 			sqes[sq_position & actual_queue_mask].fd = disk_fd;
 			int pm = cmd_assign_pgs(&(sqes[sq_position & actual_queue_mask].cmd),  // command to assign
-			reqs_withdiskoffsets.data() + reqs_done + i, std::min(pages_per_cmd, real_n_ops - i), logical_block_size);
+			reqs_withdiskoffsets.data() + reqs_done + i, std::min((int)(pages_per_cmd), real_n_ops - i), logical_block_size);
 			// return value = how many reads there are in the command
 			if (pm == -1) {
         std::stringstream err;
