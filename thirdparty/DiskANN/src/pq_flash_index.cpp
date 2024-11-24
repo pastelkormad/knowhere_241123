@@ -1226,6 +1226,7 @@ namespace diskann {
     auto filter_nbrs = [&](_u64      nnbrs,
                            unsigned *node_nbrs) -> std::pair<_u64, unsigned *> {
       filtered_nbrs.clear();
+      LOG(INFO) << "Filtering " << nnbrs << " neighbors";
       for (_u64 m = 0; m < nnbrs; ++m) {
         unsigned id = node_nbrs[m];
         if (visited.find(id) != visited.end()) {

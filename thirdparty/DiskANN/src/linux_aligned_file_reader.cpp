@@ -15,7 +15,7 @@
 namespace {
   static constexpr uint64_t n_retries = 10;
   static constexpr uint64_t PAGE_SIZE = 4096;
-  static constexpr uint64_t pages_per_cmd = 8;
+  static constexpr uint64_t pages_per_cmd = 1;
   static constexpr uint64_t maxnr_cap = 128;
 
   typedef struct io_event io_event_t;
@@ -229,11 +229,11 @@ int count, unsigned int logical_block_size = 512){
     // cdws for custom batch command (opcode 144) is not contiguous
 	// logical_block_size does not matter for custom batch command
     for(int i=0; i<2; i++){
-        *((unsigned int*)(&(cmd->cdw2)) + i) = (i <= can_be_batched_up_to) ? (reads[i].offset / PAGE_SIZE) : unused_mark;
+        *((unsigned int*)(&(cmd->cdw2)) + i) = (i <= can_be_batched_up_to) ? (unsigned int)(reads[i].offset / PAGE_SIZE) : unused_mark;
     }
     // as i starts from 2, base address is 8 bytes ahead of cdw10 (actual base address) 
     for(int i=2; i<8; i++){
-        *((unsigned int*)(&(cmd->metadata_len)) + i) = (i <= can_be_batched_up_to) ? (reads[i].offset / PAGE_SIZE) : unused_mark;
+        *((unsigned int*)(&(cmd->metadata_len)) + i) = (i <= can_be_batched_up_to) ? (unsigned int)(reads[i].offset / PAGE_SIZE) : unused_mark;
     }
 
 	return can_be_batched_up_to + 1;
@@ -310,7 +310,7 @@ int getFileExtents(const int fd, std::vector<Extent>* extentList){
     struct fiemap_extent *extents;
 
     // first call to only get the number of extents
-    fiemap = static_cast<struct fiemap *>(calloc(1, sizeof(struct fiemap)));
+    fiemap = (struct fiemap *)(calloc(1, sizeof(struct fiemap)));
     fiemap->fm_start = 0;
     fiemap->fm_length = FIEMAP_MAX_OFFSET;
     fiemap->fm_flags = FIEMAP_FLAG_SYNC;
@@ -327,13 +327,13 @@ int getFileExtents(const int fd, std::vector<Extent>* extentList){
 
     free(fiemap);
     // second call to get the extents, additionally allocate memory for the extents
-    fiemap = static_cast<struct fiemap *>(calloc(1, sizeof(struct fiemap) +
+    fiemap = (struct fiemap *)(calloc(1, sizeof(struct fiemap) +
                     num_extents * sizeof(struct fiemap_extent)));
     fiemap->fm_start = 0;
     fiemap->fm_length = FIEMAP_MAX_OFFSET;
     fiemap->fm_flags = FIEMAP_FLAG_SYNC;
     fiemap->fm_extent_count = num_extents;
-    lseek64(fd, 0, SEEK_SET);
+    
     if (ioctl(fd, FS_IOC_FIEMAP, fiemap) < 0){
         std::stringstream err;
         err << "Error in FIEMAP ioctl: " << strerror(errno);
@@ -487,8 +487,8 @@ void LinuxAlignedFileReader::open(const std::string &fname) {
   this->file_desc = ::open(fname.c_str(), flags);
   // error checks
   assert(this->file_desc != -1);
-  LOG_KNOWHERE_DEBUG_ << "Opened file : " << fname;
-  this->disk_fd = open_disk_fd(this->file_desc, false, O_RDONLY, true);
+  LOG_KNOWHERE_INFO_ << "Opened file : " << fname;
+  this->disk_fd = open_disk_fd(this->file_desc, false, O_RDWR, true);
   if (this->disk_fd < 0) {
     std::stringstream err;
     err << "Error opening disk: " << strerror(errno);
@@ -500,12 +500,19 @@ void LinuxAlignedFileReader::open(const std::string &fname) {
     err << "Error getting partition offset: " << strerror(errno);
     throw diskann::ANNException(err.str(), -1, __FUNCSIG__, __FILE__, __LINE__);
   }
-  LOG_KNOWHERE_DEBUG_ << "Partition offset: " << this->partition_start << ", Logical block size: " << this->logical_block_size;
+  LOG_KNOWHERE_INFO_ << "Partition offset: " << this->partition_start << ", Logical block size: " << this->logical_block_size;
 
   // get extents of the file
   std::vector<Extent> extents;
   getFileExtents(this->file_desc, &extents);
   this->tree = new IntervalTree(extents);
+
+  // print extents
+  for (auto &extent : extents) {
+    LOG_KNOWHERE_INFO_ << "Extent: logical_start=" << extent.logical_start
+                       << ", physical_start=" << extent.physical_start
+                       << ", length=" << extent.length;
+  }
 
   // initialize ring
   io_uring_queue_init(maxnr_cap, &this->ring, IORING_SETUP_SQE128 | IORING_SETUP_CQE32);
@@ -544,7 +551,7 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
   const int actual_queue_size = [](int q){int r=1; while(r<q) r<<=1; return r;}(queue_size);
   const int actual_queue_mask = actual_queue_size - 1;
   struct io_uring_sqe_128* sqes = (struct io_uring_sqe_128*)(ring.sq.sqes);
-  memset(sqes, 0, sizeof(struct io_uring_sqe_128) * actual_queue_size);
+  // memset(sqes, 0, sizeof(struct io_uring_sqe_128) * actual_queue_size);
 
 	std::vector<AlignedRead> reqs_withdiskoffsets(read_reqs); // copy of read_reqs, convert to disk offsets
 
@@ -566,6 +573,9 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
 			sqes[sq_position & actual_queue_mask].opcode = IORING_OP_URING_CMD;
 			sqes[sq_position & actual_queue_mask].cmd_op = NVME_URING_CMD_IO;
 			sqes[sq_position & actual_queue_mask].fd = disk_fd;
+      LOG_KNOWHERE_INFO_ << "fd: " << disk_fd <<  ", offset within file: " << read_reqs[reqs_done + i].offset << ", disk offset: "
+       << reqs_withdiskoffsets[reqs_done + i].offset << ", len: " << reqs_withdiskoffsets[reqs_done + i].len;
+
 			int pm = cmd_assign_pgs(&(sqes[sq_position & actual_queue_mask].cmd),  // command to assign
 			reqs_withdiskoffsets.data() + reqs_done + i, std::min((int)(pages_per_cmd), real_n_ops - i), logical_block_size);
 			// return value = how many reads there are in the command
