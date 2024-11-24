@@ -462,6 +462,7 @@ int open_disk_fd(int file_fd, bool open_partition = false, int oflag = O_RDONLY,
 LinuxAlignedFileReader::LinuxAlignedFileReader() {
   this->file_desc = -1;
   this->ctx_pool_ = AioContextPool::GetGlobalAioPool();
+  this->uring_pool_ = IOUringPool::GetGlobalIOUringPool();
 }
 
 LinuxAlignedFileReader::~LinuxAlignedFileReader() {
@@ -514,9 +515,7 @@ void LinuxAlignedFileReader::open(const std::string &fname) {
                        << ", length=" << extent.length;
   }
 
-  // initialize ring
-  io_uring_queue_init(maxnr_cap, &this->ring, IORING_SETUP_SQE128 | IORING_SETUP_CQE32);
-
+  // ring initialized in LinuxAlignedFileReader::LinuxAlignedFileReader
 }
 
 void LinuxAlignedFileReader::close() {
@@ -531,12 +530,11 @@ void LinuxAlignedFileReader::close() {
 
   ::close(this->disk_fd);
   
-  io_uring_queue_exit(&this->ring);
   delete this->tree;
 }
 
 void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
-                                  io_context_t &ctx, bool async) {
+                                  io_context_t &ctx, struct io_uring *&ring, bool async) {
   if (async == true) {
     diskann::cout << "Async currently not supported in linux." << std::endl;
   }
@@ -550,7 +548,7 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
   // the size of actual array in ring.sq.sqes is a power of 2
   const int actual_queue_size = [](int q){int r=1; while(r<q) r<<=1; return r;}(queue_size);
   const int actual_queue_mask = actual_queue_size - 1;
-  struct io_uring_sqe_128* sqes = (struct io_uring_sqe_128*)(ring.sq.sqes);
+  struct io_uring_sqe_128* sqes = (struct io_uring_sqe_128*)((ring->sq).sqes);
   // memset(sqes, 0, sizeof(struct io_uring_sqe_128) * actual_queue_size);
 
 	std::vector<AlignedRead> reqs_withdiskoffsets(read_reqs); // copy of read_reqs, convert to disk offsets
@@ -566,15 +564,15 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
 	}
 
 	for (int iter=0; iter<n_iters; iter++){
-		int sq_position = ring.sq.sqe_tail;
+		int sq_position = ring->sq.sqe_tail;
 		int real_n_ops = std::min((int)maxnr, reqs_size - reqs_done);
 		int real_command_count = 0;
 		for(int i=0; i<real_n_ops;){
 			sqes[sq_position & actual_queue_mask].opcode = IORING_OP_URING_CMD;
 			sqes[sq_position & actual_queue_mask].cmd_op = NVME_URING_CMD_IO;
 			sqes[sq_position & actual_queue_mask].fd = disk_fd;
-      LOG_KNOWHERE_INFO_ << "fd: " << disk_fd <<  ", offset within file: " << read_reqs[reqs_done + i].offset << ", disk offset: "
-       << reqs_withdiskoffsets[reqs_done + i].offset << ", len: " << reqs_withdiskoffsets[reqs_done + i].len;
+      // LOG_KNOWHERE_INFO_ << "fd: " << disk_fd <<  ", offset within file: " << read_reqs[reqs_done + i].offset << ", disk offset: "
+      //  << reqs_withdiskoffsets[reqs_done + i].offset << ", len: " << reqs_withdiskoffsets[reqs_done + i].len;
 
 			int pm = cmd_assign_pgs(&(sqes[sq_position & actual_queue_mask].cmd),  // command to assign
 			reqs_withdiskoffsets.data() + reqs_done + i, std::min((int)(pages_per_cmd), real_n_ops - i), logical_block_size);
@@ -591,10 +589,10 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
 			real_command_count++;
 		}
 
-		*(ring.sq.ktail) += real_command_count;
-		ring.sq.sqe_tail += real_command_count;
+		*(ring->sq.ktail) += real_command_count;
+		ring->sq.sqe_tail += real_command_count;
 
-		int ret = io_uring_submit(&ring);
+		int ret = io_uring_submit(ring);
 		if(ret < 0){
       std::stringstream err;
       err << "io_uring_submit: " << strerror(-ret);
@@ -605,7 +603,7 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
 		struct io_uring_cqe *cqe;
 		ret = 0;
 		for(int i=0; i<real_command_count; i++){
-			ret=io_uring_wait_cqe(&ring, &cqe);
+			ret=io_uring_wait_cqe(ring, &cqe);
 			if (ret < 0) {
         std::stringstream err;
         err << "io_uring_wait_cqe: " << strerror(-ret);
@@ -613,7 +611,7 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
 				// fprintf(stderr, "io_uring_wait_cqe: %s\n", strerror(-ret));
 				// return 1;
 			}
-			io_uring_cqe_seen(&ring, cqe);
+			io_uring_cqe_seen(ring, cqe);
 		}
 		reqs_done += real_n_ops;
 	}

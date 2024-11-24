@@ -138,10 +138,13 @@ KnowhereConfig::SetClusteringType(const ClusteringType clustering_type) {
     }
 }
 
+// PASTEL: this function now doubles as IOUringPool initialization as well
 bool
 KnowhereConfig::SetAioContextPool(size_t num_ctx) {
 #ifdef KNOWHERE_WITH_DISKANN
-    return AioContextPool::InitGlobalAioPool(num_ctx, default_max_events);
+    bool ret1 = AioContextPool::InitGlobalAioPool(num_ctx, default_max_events);
+    bool ret2 = IOUringPool::InitGlobalUringPool(num_ctx, default_max_events);
+    return ret1 && ret2; // avoid lazy evaluation to ensure both are called
 #endif
     return true;
 }

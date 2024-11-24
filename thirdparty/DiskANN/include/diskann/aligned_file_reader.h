@@ -50,6 +50,10 @@ class AlignedFileReader {
 
   virtual void put_ctx(IOContext) = 0;
 
+  virtual struct io_uring* get_uring() = 0;
+
+  virtual void put_uring(struct io_uring*) = 0;
+
   // Open & close ops
   // Blocking calls
   virtual void open(const std::string& fname) = 0;
@@ -57,8 +61,8 @@ class AlignedFileReader {
 
   // process batch of aligned requests in parallel
   // NOTE :: blocking call
-  virtual void read(std::vector<AlignedRead>& read_reqs, IOContext& ctx,
-                    bool async = false) = 0;
+  virtual void read(std::vector<AlignedRead> &read_reqs,
+    io_context_t &ctx, struct io_uring *&ring, bool async = false) = 0;
 
   // async reads
   virtual void get_submitted_req(io_context_t &ctx, size_t n_ops) = 0;

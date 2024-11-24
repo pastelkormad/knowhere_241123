@@ -317,6 +317,7 @@ namespace diskann {
                         << " points) into memory...";
 
     auto ctx = this->reader->get_ctx();
+    auto uring = this->reader->get_uring();
 
     if (nhood_cache_buf == nullptr) {
       nhood_cache_buf =
@@ -351,7 +352,7 @@ namespace diskann {
         read_reqs.push_back(read);
       }
 
-      reader->read(read_reqs, ctx);
+      reader->read(read_reqs, ctx, uring);
 
       _u64 node_idx = start_idx;
       for (_u32 i = 0; i < read_reqs.size(); i++) {
@@ -380,6 +381,7 @@ namespace diskann {
       }
     }
     this->reader->put_ctx(ctx);
+    this->reader->put_uring(uring);
     LOG_KNOWHERE_DEBUG_ << "done.";
   }
 
@@ -532,6 +534,7 @@ namespace diskann {
     }
 
     auto ctx = this->reader->get_ctx();
+    auto uring = this->reader->get_uring();
 
     std::unique_ptr<tsl::robin_set<unsigned>> cur_level, prev_level;
     cur_level = std::make_unique<tsl::robin_set<unsigned>>();
@@ -586,7 +589,7 @@ namespace diskann {
         }
 
         // issue read requests
-        reader->read(read_reqs, ctx);
+        reader->read(read_reqs, ctx, uring);
 
         // process each nhood buf
         for (_u32 i = 0; i < read_reqs.size(); i++) {
@@ -637,6 +640,7 @@ namespace diskann {
     this->thread_data.push(this_thread_data);
     this->thread_data.push_notify_all();
     this->reader->put_ctx(ctx);
+    this->reader->put_uring(uring);
 
     LOG(INFO) << "done";
   }
@@ -655,6 +659,7 @@ namespace diskann {
       data = this->thread_data.pop();
     }
     auto ctx = this->reader->get_ctx();
+    auto uring = this->reader->get_uring();
     // borrow buf
     auto scratch = &(data.scratch);
     scratch->reset();
@@ -670,7 +675,7 @@ namespace diskann {
       medoid_read[0].len = read_len_for_node;
       medoid_read[0].buf = sector_scratch;
       medoid_read[0].offset = get_node_sector_offset(medoid);
-      reader->read(medoid_read, ctx);
+      reader->read(medoid_read, ctx, uring);
 
       // all data about medoid
       char *medoid_node_buf = get_offset_to_node(sector_scratch, medoid);
@@ -693,6 +698,7 @@ namespace diskann {
     this->thread_data.push(data);
     this->thread_data.push_notify_all();
     this->reader->put_ctx(ctx);
+    this->reader->put_uring(uring);
   }
 
   template<typename T>
@@ -938,7 +944,7 @@ namespace diskann {
   void PQFlashIndex<T>::brute_force_beam_search(
       ThreadData<T> &data, const float query_norm, const _u64 k_search,
       _s64 *indices, float *distances, const _u64 beam_width_param,
-      IOContext &ctx, QueryStats *stats,
+      IOContext &ctx, struct io_uring*& uring, QueryStats *stats,
       const knowhere::feder::diskann::FederResultUniq &feder,
       knowhere::BitsetView                             bitset_view) {
     auto         query_scratch = &(data.scratch);
@@ -1018,7 +1024,7 @@ namespace diskann {
       if (frontier_read_reqs.size() == beam_width ||
           it == nodes_in_sectors_to_visit.cend()) {
         io_timer.reset();
-        reader->read(frontier_read_reqs, ctx);  // synchronous IO linux
+        reader->read(frontier_read_reqs, ctx, uring);  // synchronous IO linux
         if (stats != nullptr) {
           stats->io_us += (double) io_timer.elapsed();
         }
@@ -1101,6 +1107,7 @@ namespace diskann {
     }
     float query_norm = query_norm_opt.value();
     auto  ctx = this->reader->get_ctx();
+    auto  uring = this->reader->get_uring();
 
     size_t bv_cnt = 0;
 
@@ -1124,10 +1131,11 @@ namespace diskann {
 
       if (bv_cnt >= bitset_view.size() * filter_threshold) {
         brute_force_beam_search(data, query_norm, k_search, indices, distances,
-                                beam_width, ctx, stats, feder, bitset_view);
+                                beam_width, ctx, uring, stats, feder, bitset_view);
         this->thread_data.push(data);
         this->thread_data.push_notify_all();
         this->reader->put_ctx(ctx);
+this->reader->put_uring(uring);
         return;
       }
     }
@@ -1135,10 +1143,11 @@ namespace diskann {
     // Turn to BF is k_search is too large
     if (k_search > 0.5 * (num_points - bv_cnt)) {
       brute_force_beam_search(data, query_norm, k_search, indices, distances,
-                              beam_width, ctx, stats, feder, bitset_view);
+                              beam_width, ctx, uring, stats, feder, bitset_view);
       this->thread_data.push(data);
       this->thread_data.push_notify_all();
       this->reader->put_ctx(ctx);
+this->reader->put_uring(uring);
       return;
     }
 
@@ -1226,7 +1235,6 @@ namespace diskann {
     auto filter_nbrs = [&](_u64      nnbrs,
                            unsigned *node_nbrs) -> std::pair<_u64, unsigned *> {
       filtered_nbrs.clear();
-      LOG(INFO) << "Filtering " << nnbrs << " neighbors";
       for (_u64 m = 0; m < nnbrs; ++m) {
         unsigned id = node_nbrs[m];
         if (visited.find(id) != visited.end()) {
@@ -1315,7 +1323,7 @@ namespace diskann {
           num_ios++;
         }
         io_timer.reset();
-        reader->read(frontier_read_reqs, ctx);  // synchronous IO linux
+        reader->read(frontier_read_reqs, ctx, uring);  // synchronous IO linux
         if (stats != nullptr) {
           stats->io_us += (double) io_timer.elapsed();
         }
@@ -1458,7 +1466,7 @@ namespace diskann {
       }
 
       io_timer.reset();
-      reader->read(vec_read_reqs, ctx);  // synchronous IO linux
+      reader->read(vec_read_reqs, ctx, uring);  // synchronous IO linux
       if (stats != nullptr) {
         stats->io_us += io_timer.elapsed();
       }
@@ -1504,6 +1512,7 @@ namespace diskann {
     this->thread_data.push(data);
     this->thread_data.push_notify_all();
     this->reader->put_ctx(ctx);
+this->reader->put_uring(uring);
     // std::cout << num_ios << " " <<stats << std::endl;
 
     if (stats != nullptr) {
@@ -1580,6 +1589,7 @@ namespace diskann {
     }
 
     auto                     ctx = this->reader->get_ctx();
+    auto                    uring = this->reader->get_uring();
     const auto               sector_num = sector_offsets.size();
     const _u64               num_blocks = DIV_ROUND_UP(sector_num, batch_size);
     std::vector<AlignedRead> last_reqs;
@@ -1620,6 +1630,7 @@ namespace diskann {
     }
 
     this->reader->put_ctx(ctx);
+this->reader->put_uring(uring);
     this->thread_data.push(data);
     this->thread_data.push_notify_all();
   }
@@ -1673,6 +1684,7 @@ namespace diskann {
     }
     data.scratch.reset();
     auto ctx = this->reader->get_ctx();
+    auto uring = this->reader->get_uring();
 
     // todo: switch to quant-bf
 
@@ -1835,7 +1847,7 @@ namespace diskann {
                 fnhood.second);
           }
           reader->read(workspace->frontier_read_reqs,
-                       ctx);  // synchronous IO linux
+                       ctx, uring);  // synchronous IO linux
         }
 
         // process cached nhoods
@@ -1873,6 +1885,7 @@ namespace diskann {
 
     // give back the memory buffer
     this->reader->put_ctx(ctx);
+this->reader->put_uring(uring);
     this->thread_data.push(data);
     this->thread_data.push_notify_all();
   }

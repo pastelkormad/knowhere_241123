@@ -33,7 +33,8 @@ private:
   uint64_t     partition_start;
   uint64_t     logical_block_size;
   
-  struct io_uring ring;
+  // struct io_uring ring;
+  std::shared_ptr<IOUringPool> uring_pool_;
   
   // filefrag extents to tree and search
     class IntervalTree {
@@ -109,6 +110,14 @@ private:
     ctx_pool_->push(ctx);
   }
 
+  struct io_uring* get_uring() {
+    return uring_pool_->pop();
+  }
+
+  void put_uring(struct io_uring* ring) {
+    uring_pool_->push(ring);
+  }
+
   // Open & close ops
   // Blocking calls
   void open(const std::string &fname) override;
@@ -116,8 +125,8 @@ private:
 
   // process batch of aligned requests in parallel
   // NOTE :: blocking call
-  void read(std::vector<AlignedRead> &read_reqs, IOContext &ctx,
-            bool async = false) override;
+  void read(std::vector<AlignedRead> &read_reqs,
+    io_context_t &ctx, struct io_uring *&ring, bool async = false) override;
 
   // async reads
   void get_submitted_req (io_context_t &ctx, size_t n_ops) override;

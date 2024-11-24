@@ -261,7 +261,7 @@ namespace diskann {
     void brute_force_beam_search(
         ThreadData<T> &data, const float query_norm, const _u64 k_search,
         _s64 *indices, float *distances, const _u64 beam_width_param,
-        IOContext &ctx, QueryStats *stats,
+        IOContext &ctx, struct io_uring*& uring, QueryStats *stats,
         const knowhere::feder::diskann::FederResultUniq &feder,
         knowhere::BitsetView                             bitset_view);
 
