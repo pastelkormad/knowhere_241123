@@ -15,7 +15,7 @@
 namespace {
   static constexpr uint64_t n_retries = 10;
   static constexpr uint64_t PAGE_SIZE = 4096;
-  static constexpr uint64_t pages_per_cmd = 1;
+  static constexpr uint64_t pages_per_cmd = 8;
   static constexpr uint64_t maxnr_cap = 128;
 
   typedef struct io_event io_event_t;
