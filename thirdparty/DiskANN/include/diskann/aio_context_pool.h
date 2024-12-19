@@ -233,7 +233,7 @@ class IOUringPool {
   inline static size_t           global_uring_pool_size = 0;
   inline static size_t           global_uring_max_queue_size = 0;
   inline static std::mutex       global_uring_pool_mut;
-  static constexpr unsigned int queue_init_flags = IORING_SETUP_SQE128 | IORING_SETUP_CQE32; 
+  static constexpr unsigned int queue_init_flags = 0; 
   IOUringPool(size_t num_uring, size_t max_queue_size)
       : num_uring_(num_uring), max_queue_size_(max_queue_size) {
     for (size_t i = 0; i < num_uring_; ++i) {
